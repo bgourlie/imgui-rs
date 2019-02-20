@@ -1,0 +1,18 @@
+[package]
+name = "imgui-gfx-hal-renderer"
+version = "0.0.23-pre"
+edition = "2018"
+authors = ["Joonas Javanainen <joonas.javanainen@gmail.com>", "imgui-rs contributors"]
+description = "gfx-hal renderer for the imgui crate"
+homepage = "https://github.com/Gekkio/imgui-rs"
+repository = "https://github.com/Gekkio/imgui-rs"
+license = "MIT/Apache-2.0"
+categories = ["gui", "rendering"]
+
+[badges]
+travis-ci = { repository = "Gekkio/imgui-rs" }
+
+[dependencies]
+rendy = "0.1.1"
+imgui = { version = "0.0.23-pre", path = "../" }
+imgui-sys = { version = "0.0.23-pre", path = "../imgui-sys", features = ["gfx"] }

@@ -13,6 +13,9 @@ categories = ["gui", "rendering"]
 travis-ci = { repository = "Gekkio/imgui-rs" }
 
 [dependencies]
-rendy = "0.1.1"
+rendy = {git = "https://github.com/omni-viral/rendy.git" }
+failure = "0.1.5"
+gfx-hal = "0.1.0"
+lazy_static = "1.2.0"
 imgui = { version = "0.0.23-pre", path = "../" }
 imgui-sys = { version = "0.0.23-pre", path = "../imgui-sys", features = ["gfx"] }

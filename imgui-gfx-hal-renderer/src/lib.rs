@@ -1,34 +1,18 @@
-//!
-//! A simple sprite example.
-//! This examples shows how to render a sprite on a white background.
-//!
-
-#![cfg_attr(
-not(any(feature = "dx12", feature = "metal", feature = "vulkan")),
-allow(unused)
-)]
-
-use rendy::{
-    command::{Families, QueueId, RenderPassEncoder},
-    factory::{Config, Factory},
-    graph::{present::PresentNode, render::*, Graph, GraphBuilder, NodeBuffer, NodeImage},
-    memory::MemoryUsageValue,
-    mesh::{AsVertex, PosTex},
-    resource::buffer::Buffer,
-    shader::{Shader, ShaderKind, SourceLanguage, StaticShaderInfo},
-    texture::{pixel::Rgba8Srgb, Texture, TextureBuilder},
+#[allow(unused_imports)]
+use {
+    rendy::{
+        command::{Families, QueueId, RenderPassEncoder},
+        factory::{Config, Factory},
+        graph::{present::PresentNode, render::*, Graph, GraphBuilder, NodeBuffer, NodeImage},
+        memory::MemoryUsageValue,
+        mesh::{AsVertex, PosTex},
+        resource::buffer::Buffer,
+        shader::{Shader, ShaderKind, SourceLanguage, StaticShaderInfo},
+        texture::{pixel::Rgba8Srgb, Texture, TextureBuilder},
+    },
+    gfx_hal::{Backend, pso, format, image}
 };
 
-use winit::{EventsLoop, WindowBuilder};
-
-#[cfg(feature = "dx12")]
-type Backend = rendy::dx12::Backend;
-
-#[cfg(feature = "metal")]
-type Backend = rendy::metal::Backend;
-
-#[cfg(feature = "vulkan")]
-type Backend = rendy::vulkan::Backend;
 
 lazy_static::lazy_static! {
     static ref VERTEX: StaticShaderInfo = StaticShaderInfo::new(
@@ -46,36 +30,53 @@ lazy_static::lazy_static! {
     );
 }
 
-#[derive(Debug, Default)]
-struct SpriteGraphicsPipelineDesc;
-
 #[derive(Debug)]
-struct ImguiPipeline<B: gfx_hal::Backend> {
+struct ImguiPipeline<B: Backend> {
     texture: Texture<B>,
     vertex: Option<Buffer<B>>,
     descriptor_pool: B::DescriptorPool,
     descriptor_set: B::DescriptorSet,
 }
 
-impl<B, T> SimpleGraphicsPipelineDesc<B, T> for SpriteGraphicsPipelineDesc
+#[derive(Debug, Default)]
+struct ImguiPipelineDesc;
+
+impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
     where
         B: gfx_hal::Backend,
         T: ?Sized,
 {
     type Pipeline = ImguiPipeline<B>;
 
-    fn depth_stencil(&self) -> Option<gfx_hal::pso::DepthStencilDesc> {
+    fn depth_stencil(&self) -> Option<pso::DepthStencilDesc> {
         None
     }
 
     fn vertices(
         &self,
     ) -> Vec<(
-        Vec<gfx_hal::pso::Element<gfx_hal::format::Format>>,
+        Vec<gfx_hal::pso::Element<format::Format>>,
         gfx_hal::pso::ElemStride,
         gfx_hal::pso::InstanceRate,
     )> {
         vec![PosTex::VERTEX.gfx_vertex_input_desc(0)]
+    }
+
+    fn layout(&self) -> Layout {
+        Layout {
+            sets: vec![SetLayout {
+                bindings: vec![
+                    pso::DescriptorSetLayoutBinding {
+                        binding: 0,
+                        ty: pso::DescriptorType::CombinedImageSampler,
+                        count: 1,
+                        stage_flags: pso::ShaderStageFlags::FRAGMENT,
+                        immutable_samplers: true,
+                    }
+                ],
+            }],
+            push_constants: Vec::new(),
+        }
     }
 
     fn load_shader_set<'b>(
@@ -86,10 +87,8 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for SpriteGraphicsPipelineDesc
     ) -> gfx_hal::pso::GraphicsShaderSet<'b, B> {
         storage.clear();
 
-        log::trace!("Load shader module '{:#?}'", *VERTEX);
         storage.push(VERTEX.module(factory).unwrap());
 
-        log::trace!("Load shader module '{:#?}'", *FRAGMENT);
         storage.push(FRAGMENT.module(factory).unwrap());
 
         gfx_hal::pso::GraphicsShaderSet {
@@ -109,23 +108,6 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for SpriteGraphicsPipelineDesc
         }
     }
 
-    fn layout(&self) -> Layout {
-        Layout {
-            sets: vec![SetLayout {
-                bindings: vec![
-                    gfx_hal::pso::DescriptorSetLayoutBinding {
-                        binding: 0,
-                        ty: gfx_hal::pso::DescriptorType::CombinedImageSampler,
-                        count: 1,
-                        stage_flags: gfx_hal::pso::ShaderStageFlags::FRAGMENT,
-                        immutable_samplers: true,
-                    }
-                ],
-            }],
-            push_constants: Vec::new(),
-        }
-    }
-
     fn build<'b>(
         self,
         factory: &mut Factory<B>,
@@ -140,20 +122,15 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for SpriteGraphicsPipelineDesc
         assert_eq!(set_layouts.len(), 1);
 
         // This is how we can load an image and create a new texture.
-        let image_bytes = include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/examples/sprite/logo.png"
-        ));
-        let image = image::load_from_memory(&image_bytes[..]).unwrap().to_rgba();
 
-        let (width, height) = image.dimensions();
+        let (width, height) = (256, 240);
 
         let mut image_data = Vec::<Rgba8Srgb>::new();
 
-        for y in 0..height {
-            for x in 0..width {
+        for _y in 0..height {
+            for _x in 0..width {
                 image_data.push(Rgba8Srgb {
-                    repr: image.get_pixel(x, y).data,
+                    repr: [0,0,0,0],
                 });
             }
         }
@@ -205,9 +182,10 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for SpriteGraphicsPipelineDesc
                         set: &descriptor_set,
                         binding: 0,
                         array_offset: 0,
-                        descriptors: vec![gfx_hal::pso::Descriptor::CombinedImageSampler(
+                        descriptors: vec![pso::Descriptor::CombinedImageSampler(
                             texture.image_view.raw(),
-                            gfx_hal::image::Layout::ShaderReadOnlyOptimal,
+                            image::Layout::ShaderReadOnlyOptimal,
+                            texture.sampler.raw()
                         )],
                     }
                 ],
@@ -228,7 +206,7 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
         B: gfx_hal::Backend,
         T: ?Sized,
 {
-    type Desc = SpriteGraphicsPipelineDesc;
+    type Desc = ImguiPipelineDesc;
 
     fn prepare(
         &mut self,

@@ -10,7 +10,7 @@ use {
         shader::{Shader, ShaderKind, SourceLanguage, StaticShaderInfo},
         texture::{pixel::Rgba8Srgb, Texture, TextureBuilder},
     },
-    gfx_hal::{Backend, pso, format, image}
+    gfx_hal::{Backend, Device, pso, format, image}
 };
 
 
@@ -152,18 +152,14 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
             .unwrap();
 
         let mut descriptor_pool = unsafe {
-            gfx_hal::Device::create_descriptor_pool(
-                factory.device(),
+
+            factory.device().create_descriptor_pool(
                 1,
                 &[
                     gfx_hal::pso::DescriptorRangeDesc {
-                        ty: gfx_hal::pso::DescriptorType::SampledImage,
+                        ty: gfx_hal::pso::DescriptorType::CombinedImageSampler,
                         count: 1,
-                    },
-                    gfx_hal::pso::DescriptorRangeDesc {
-                        ty: gfx_hal::pso::DescriptorType::Sampler,
-                        count: 1,
-                    },
+                    }
                 ],
             )
         }
@@ -175,8 +171,7 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
             .unwrap();
 
         unsafe {
-            gfx_hal::Device::write_descriptor_sets(
-                factory.device(),
+            factory.device().write_descriptor_sets(
                 vec![
                     gfx_hal::pso::DescriptorSetWrite {
                         set: &descriptor_set,

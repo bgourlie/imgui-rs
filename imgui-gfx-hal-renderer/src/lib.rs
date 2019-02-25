@@ -36,8 +36,7 @@ lazy_static::lazy_static! {
 #[derive(Debug)]
 struct ImguiPipeline<B: Backend> {
     texture: Texture<B>,
-    vertex_buffer: Option<Buffer<B>>,
-    index_buffer: Option<Buffer<B>>,
+    buffers: Option<(Buffer<B>, Buffer<B>)>,
     descriptor_pool: B::DescriptorPool,
     descriptor_set: B::DescriptorSet,
 }
@@ -48,15 +47,15 @@ struct ImguiPipelineDesc;
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 struct Vec2(ImVec2);
 
+
 impl PartialOrd for Vec2 {
     fn partial_cmp(&self, other: &Vec2) -> Option<Ordering> {
         let (Vec2(this), Vec2(that)) = (self, other);
-        let y_ord = this.y.cmp(that.y);
-        let x_ord = this.x.cmp(that.x);
-        if y_ord == Ordering::Equal {
-            Some(x_ord)
-        } else {
-            Some(y_ord)
+        let y_ord = this.y.partial_cmp(&that.y);
+        match y_ord {
+            Some(Ordering::Equal) => this.x.partial_cmp(&that.x),
+            Some(_) => y_ord,
+            None => None
         }
     }
 }
@@ -237,8 +236,7 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
 
         Ok(ImguiPipeline {
             texture,
-            vertex_buffer: None,
-            index_buffer: None,
+            buffers: None,
             descriptor_pool,
             descriptor_set,
         })
@@ -260,7 +258,7 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
         _index: usize,
         _aux: &T,
     ) -> PrepareResult {
-        if self.vertex_buffer.is_some() {
+        if self.buffers.is_some() {
             return PrepareResult::DrawReuse;
         }
 
@@ -278,7 +276,7 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
             0 /* TODO: Correct number of indices */,
             0 /* TODO: Correct size */,
             (gfx_hal::buffer::Usage::INDEX, MemoryUsageValue::Dynamic)
-        );
+        ).unwrap();
 
         unsafe {
             // Fresh buffer.
@@ -316,7 +314,7 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
                 .unwrap();
         }
 
-        self.vertex_buffer = Some(vbuf);
+        self.buffers = Some((vbuf, index_buffer));
 
         return PrepareResult::DrawRecord;
     }
@@ -328,7 +326,7 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
         _index: usize,
         _aux: &T,
     ) {
-        let vbuf = self.vertex_buffer.as_ref().unwrap();
+        let (vbuf, _index_buffer) = self.buffers.as_ref().unwrap();
         encoder.bind_graphics_descriptor_sets(
             layout,
             0,

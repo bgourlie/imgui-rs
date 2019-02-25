@@ -15,6 +15,10 @@ use {
 };
 use imgui_sys::ImU32;
 use std::cmp::Ordering;
+use imgui::ImGui;
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::fmt::Error;
 
 
 lazy_static::lazy_static! {
@@ -35,10 +39,20 @@ lazy_static::lazy_static! {
 
 #[derive(Debug)]
 struct ImguiPipeline<B: Backend> {
+    gui: Gui,
     texture: Texture<B>,
     buffers: Option<(Buffer<B>, Buffer<B>)>,
     descriptor_pool: B::DescriptorPool,
     descriptor_set: B::DescriptorSet,
+}
+
+struct Gui(ImGui);
+
+impl Debug for Gui {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        f.write_str("ImGuiInstance")
+
+    }
 }
 
 #[derive(Debug, Default)]
@@ -235,6 +249,7 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
         }
 
         Ok(ImguiPipeline {
+            gui: Gui(ImGui::init()),
             texture,
             buffers: None,
             descriptor_pool,

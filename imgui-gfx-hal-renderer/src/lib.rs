@@ -1,17 +1,20 @@
 #[allow(unused_imports)]
 use {
+    imgui::ImVec2,
     rendy::{
         command::{Families, QueueId, RenderPassEncoder},
         factory::{Config, Factory},
         graph::{present::PresentNode, render::*, Graph, GraphBuilder, NodeBuffer, NodeImage},
         memory::MemoryUsageValue,
-        mesh::{AsVertex, PosTex},
+        mesh::{AsVertex, PosTex, AsAttribute},
         resource::buffer::Buffer,
         shader::{Shader, ShaderKind, SourceLanguage, StaticShaderInfo},
         texture::{pixel::Rgba8Srgb, Texture, TextureBuilder},
     },
     gfx_hal::{Backend, Device, pso, format, image}
 };
+use imgui_sys::ImU32;
+use std::cmp::Ordering;
 
 
 lazy_static::lazy_static! {
@@ -33,13 +36,58 @@ lazy_static::lazy_static! {
 #[derive(Debug)]
 struct ImguiPipeline<B: Backend> {
     texture: Texture<B>,
-    vertex: Option<Buffer<B>>,
+    vertex_buffer: Option<Buffer<B>>,
+    index_buffer: Option<Buffer<B>>,
     descriptor_pool: B::DescriptorPool,
     descriptor_set: B::DescriptorSet,
 }
 
 #[derive(Debug, Default)]
 struct ImguiPipelineDesc;
+
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+struct Vec2(ImVec2);
+
+impl PartialOrd for Vec2 {
+    fn partial_cmp(&self, other: &Vec2) -> Option<Ordering> {
+        let (Vec2(this), Vec2(that)) = (self, other);
+        let y_ord = this.y.cmp(that.y);
+        let x_ord = this.x.cmp(that.x);
+        if y_ord == Ordering::Equal {
+            Some(x_ord)
+        } else {
+            Some(y_ord)
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd)]
+struct Position(Vec2);
+
+
+impl AsAttribute for Position {
+    const NAME: &'static str = "position";
+    const SIZE: u32 = 8;
+    const FORMAT: gfx_hal::format::Format = gfx_hal::format::Format::Rg32Float;
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd)]
+struct Uv(Vec2);
+
+impl AsAttribute for Uv {
+    const NAME: &'static str = "uv";
+    const SIZE: u32 = 8;
+    const FORMAT: gfx_hal::format::Format = gfx_hal::format::Format::Rg32Float;
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd)]
+struct Color(ImU32);
+
+impl AsAttribute for Color {
+    const NAME: &'static str = "color";
+    const SIZE: u32 = 4;
+    const FORMAT: gfx_hal::format::Format = gfx_hal::format::Format::Rgba8Unorm;
+}
 
 impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
     where
@@ -189,7 +237,8 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
 
         Ok(ImguiPipeline {
             texture,
-            vertex: None,
+            vertex_buffer: None,
+            index_buffer: None,
             descriptor_pool,
             descriptor_set,
         })
@@ -211,9 +260,10 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
         _index: usize,
         _aux: &T,
     ) -> PrepareResult {
-        if self.vertex.is_some() {
+        if self.vertex_buffer.is_some() {
             return PrepareResult::DrawReuse;
         }
+
 
         let mut vbuf = factory
             .create_buffer(
@@ -222,6 +272,13 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
                 (gfx_hal::buffer::Usage::VERTEX, MemoryUsageValue::Dynamic),
             )
             .unwrap();
+
+        let num_inds = 0; // TODO
+        let mut index_buffer = factory.create_buffer(
+            0 /* TODO: Correct number of indices */,
+            0 /* TODO: Correct size */,
+            (gfx_hal::buffer::Usage::INDEX, MemoryUsageValue::Dynamic)
+        );
 
         unsafe {
             // Fresh buffer.
@@ -259,7 +316,7 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
                 .unwrap();
         }
 
-        self.vertex = Some(vbuf);
+        self.vertex_buffer = Some(vbuf);
 
         return PrepareResult::DrawRecord;
     }
@@ -271,7 +328,7 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
         _index: usize,
         _aux: &T,
     ) {
-        let vbuf = self.vertex.as_ref().unwrap();
+        let vbuf = self.vertex_buffer.as_ref().unwrap();
         encoder.bind_graphics_descriptor_sets(
             layout,
             0,

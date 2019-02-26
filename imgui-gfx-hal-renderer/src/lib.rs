@@ -6,7 +6,7 @@ use {
         factory::{Config, Factory},
         graph::{present::PresentNode, render::*, Graph, GraphBuilder, NodeBuffer, NodeImage},
         memory::MemoryUsageValue,
-        mesh::{AsVertex, PosTex, AsAttribute},
+        mesh::{AsVertex, Attribute, AsAttribute, VertexFormat, WithAttribute},
         resource::buffer::Buffer,
         shader::{Shader, ShaderKind, SourceLanguage, StaticShaderInfo},
         texture::{pixel::Rgba8Srgb, Texture, TextureBuilder},
@@ -16,9 +16,11 @@ use {
 use imgui_sys::ImU32;
 use std::cmp::Ordering;
 use imgui::ImGui;
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::fmt::Error;
+use imgui::ImDrawVert;
 
 
 lazy_static::lazy_static! {
@@ -51,7 +53,6 @@ struct Gui(ImGui);
 impl Debug for Gui {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         f.write_str("ImGuiInstance")
-
     }
 }
 
@@ -60,7 +61,6 @@ struct ImguiPipelineDesc;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 struct Vec2(ImVec2);
-
 
 impl PartialOrd for Vec2 {
     fn partial_cmp(&self, other: &Vec2) -> Option<Ordering> {
@@ -76,7 +76,6 @@ impl PartialOrd for Vec2 {
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd)]
 struct Position(Vec2);
-
 
 impl AsAttribute for Position {
     const NAME: &'static str = "position";
@@ -102,6 +101,76 @@ impl AsAttribute for Color {
     const FORMAT: gfx_hal::format::Format = gfx_hal::format::Format::Rgba8Unorm;
 }
 
+#[derive(Copy, Clone, Debug, Default)]
+struct Vertex(ImDrawVert);
+
+impl PartialOrd for Vertex {
+    fn partial_cmp(&self, other: &Vertex) -> Option<Ordering> {
+        let (Vertex(this), Vertex(that)) = (self, other);
+        let (this_pos, that_pos) = (Position(Vec2(this.pos)), Position(Vec2(that.pos)));
+        let pos_ordering = this_pos.partial_cmp(&that_pos);
+
+        match pos_ordering {
+            Some(Ordering::Equal) => {
+                let (this_uv, that_uv) = (Uv(Vec2(this.uv)), Uv(Vec2(that.uv)));
+                let uv_ordering = this_uv.partial_cmp(&that_uv);
+                match uv_ordering {
+                    Some(Ordering::Equal) => {
+                        let (this_color, that_color) = (Color(this.col), Color(that.col));
+                        this_color.partial_cmp(&that_color)
+                    },
+                    Some(_) => uv_ordering,
+                    None => None
+                }
+            },
+            Some(_) => pos_ordering,
+            None => None
+        }
+    }
+}
+
+impl PartialEq for Vertex {
+    fn eq(&self, other: &Vertex) -> bool {
+        let (Vertex(this), Vertex(that)) = (self, other);
+        let (this_pos, that_pos) = (Position(Vec2(this.pos)), Position(Vec2(that.pos)));
+        let (this_uv, that_uv) = (Uv(Vec2(this.uv)), Uv(Vec2(that.uv)));
+        let (this_color, that_color) = (Color(this.col), Color(that.col));
+        this_pos.eq(&that_pos) && this_uv.eq(&that_uv) && this_color.eq(&that_color)
+    }
+}
+
+impl AsVertex for Vertex {
+    const VERTEX: VertexFormat<'static> = VertexFormat {
+        attributes: Cow::Borrowed(&[
+            <Self as WithAttribute<Position>>::ATTRIBUTE,
+            <Self as WithAttribute<Uv>>::ATTRIBUTE,
+            <Self as WithAttribute<Color>>::ATTRIBUTE,
+        ]),
+        stride: Position::SIZE + Uv::SIZE + Color::SIZE,
+    };
+}
+
+impl WithAttribute<Position> for Vertex {
+    const ATTRIBUTE: Attribute = Attribute {
+        offset: 0,
+        format: Position::FORMAT,
+    };
+}
+
+impl WithAttribute<Color> for Vertex {
+    const ATTRIBUTE: Attribute = Attribute {
+        offset: 0,
+        format: Position::FORMAT,
+    };
+}
+
+impl WithAttribute<Uv> for Vertex {
+    const ATTRIBUTE: Attribute = Attribute {
+        offset: 0,
+        format: Position::FORMAT,
+    };
+}
+
 impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
     where
         B: gfx_hal::Backend,
@@ -120,7 +189,7 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
         gfx_hal::pso::ElemStride,
         gfx_hal::pso::InstanceRate,
     )> {
-        vec![PosTex::VERTEX.gfx_vertex_input_desc(0)]
+        vec![Vertex::VERTEX.gfx_vertex_input_desc(0)]
     }
 
     fn layout(&self) -> Layout {
@@ -281,7 +350,7 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
         let mut vbuf = factory
             .create_buffer(
                 512,
-                PosTex::VERTEX.stride as u64 * 6,
+                Vertex::VERTEX.stride as u64 * 6,
                 (gfx_hal::buffer::Usage::VERTEX, MemoryUsageValue::Dynamic),
             )
             .unwrap();
@@ -296,34 +365,14 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
         unsafe {
             // Fresh buffer.
             factory
-                .upload_visible_buffer(
+                .upload_visible_buffer::<Vertex>(
                     &mut vbuf,
                     0,
                     &[
-                        PosTex {
-                            position: [-0.5, 0.33, 0.0].into(),
-                            tex_coord: [0.0, 1.0].into(),
-                        },
-                        PosTex {
-                            position: [0.5, 0.33, 0.0].into(),
-                            tex_coord: [1.0, 1.0].into(),
-                        },
-                        PosTex {
-                            position: [0.5, -0.33, 0.0].into(),
-                            tex_coord: [1.0, 0.0].into(),
-                        },
-                        PosTex {
-                            position: [-0.5, 0.33, 0.0].into(),
-                            tex_coord: [0.0, 1.0].into(),
-                        },
-                        PosTex {
-                            position: [0.5, -0.33, 0.0].into(),
-                            tex_coord: [1.0, 0.0].into(),
-                        },
-                        PosTex {
-                            position: [-0.5, -0.33, 0.0].into(),
-                            tex_coord: [0.0, 0.0].into(),
-                        },
+//                        PosTex {
+//                            position: [-0.5, -0.33, 0.0].into(),
+//                            tex_coord: [0.0, 0.0].into(),
+//                        },
                     ],
                 )
                 .unwrap();

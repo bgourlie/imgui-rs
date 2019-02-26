@@ -1,27 +1,24 @@
 #[allow(unused_imports)]
 use {
-    imgui::ImVec2,
+    gfx_hal::{format, image, pso, Backend, Device},
+    imgui::{ImDrawVert, ImGui, ImVec2},
+    imgui_sys::ImU32,
     rendy::{
         command::{Families, QueueId, RenderPassEncoder},
         factory::{Config, Factory},
         graph::{present::PresentNode, render::*, Graph, GraphBuilder, NodeBuffer, NodeImage},
         memory::MemoryUsageValue,
-        mesh::{AsVertex, Attribute, AsAttribute, VertexFormat, WithAttribute},
+        mesh::{AsAttribute, AsVertex, Attribute, VertexFormat, WithAttribute},
         resource::buffer::Buffer,
         shader::{Shader, ShaderKind, SourceLanguage, StaticShaderInfo},
         texture::{pixel::Rgba8Srgb, Texture, TextureBuilder},
     },
-    gfx_hal::{Backend, Device, pso, format, image}
+    std::{
+        borrow::Cow,
+        cmp::Ordering,
+        fmt::{Debug, Error, Formatter},
+    },
 };
-use imgui_sys::ImU32;
-use std::cmp::Ordering;
-use imgui::ImGui;
-use std::borrow::Cow;
-use std::fmt::Debug;
-use std::fmt::Formatter;
-use std::fmt::Error;
-use imgui::ImDrawVert;
-
 
 lazy_static::lazy_static! {
     static ref VERTEX: StaticShaderInfo = StaticShaderInfo::new(
@@ -69,7 +66,7 @@ impl PartialOrd for Vec2 {
         match y_ord {
             Some(Ordering::Equal) => this.x.partial_cmp(&that.x),
             Some(_) => y_ord,
-            None => None
+            None => None,
         }
     }
 }
@@ -118,13 +115,13 @@ impl PartialOrd for Vertex {
                     Some(Ordering::Equal) => {
                         let (this_color, that_color) = (Color(this.col), Color(that.col));
                         this_color.partial_cmp(&that_color)
-                    },
+                    }
                     Some(_) => uv_ordering,
-                    None => None
+                    None => None,
                 }
-            },
+            }
             Some(_) => pos_ordering,
-            None => None
+            None => None,
         }
     }
 }
@@ -172,9 +169,9 @@ impl WithAttribute<Uv> for Vertex {
 }
 
 impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
-    where
-        B: gfx_hal::Backend,
-        T: ?Sized,
+where
+    B: gfx_hal::Backend,
+    T: ?Sized,
 {
     type Pipeline = ImguiPipeline<B>;
 
@@ -195,15 +192,13 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
     fn layout(&self) -> Layout {
         Layout {
             sets: vec![SetLayout {
-                bindings: vec![
-                    pso::DescriptorSetLayoutBinding {
-                        binding: 0,
-                        ty: pso::DescriptorType::CombinedImageSampler,
-                        count: 1,
-                        stage_flags: pso::ShaderStageFlags::FRAGMENT,
-                        immutable_samplers: true,
-                    }
-                ],
+                bindings: vec![pso::DescriptorSetLayoutBinding {
+                    binding: 0,
+                    ty: pso::DescriptorType::CombinedImageSampler,
+                    count: 1,
+                    stage_flags: pso::ShaderStageFlags::FRAGMENT,
+                    immutable_samplers: true,
+                }],
             }],
             push_constants: Vec::new(),
         }
@@ -259,9 +254,7 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
 
         for _y in 0..height {
             for _x in 0..width {
-                image_data.push(Rgba8Srgb {
-                    repr: [0,0,0,0],
-                });
+                image_data.push(Rgba8Srgb { repr: [0, 0, 0, 0] });
             }
         }
 
@@ -282,39 +275,34 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
             .unwrap();
 
         let mut descriptor_pool = unsafe {
-
             factory.device().create_descriptor_pool(
                 1,
-                &[
-                    gfx_hal::pso::DescriptorRangeDesc {
-                        ty: gfx_hal::pso::DescriptorType::CombinedImageSampler,
-                        count: 1,
-                    }
-                ],
+                &[gfx_hal::pso::DescriptorRangeDesc {
+                    ty: gfx_hal::pso::DescriptorType::CombinedImageSampler,
+                    count: 1,
+                }],
             )
         }
-            .unwrap();
+        .unwrap();
 
         let descriptor_set = unsafe {
             gfx_hal::pso::DescriptorPool::allocate_set(&mut descriptor_pool, &set_layouts[0])
         }
-            .unwrap();
+        .unwrap();
 
         unsafe {
-            factory.device().write_descriptor_sets(
-                vec![
-                    gfx_hal::pso::DescriptorSetWrite {
-                        set: &descriptor_set,
-                        binding: 0,
-                        array_offset: 0,
-                        descriptors: vec![pso::Descriptor::CombinedImageSampler(
-                            texture.image_view.raw(),
-                            image::Layout::ShaderReadOnlyOptimal,
-                            texture.sampler.raw()
-                        )],
-                    }
-                ],
-            );
+            factory
+                .device()
+                .write_descriptor_sets(vec![gfx_hal::pso::DescriptorSetWrite {
+                    set: &descriptor_set,
+                    binding: 0,
+                    array_offset: 0,
+                    descriptors: vec![pso::Descriptor::CombinedImageSampler(
+                        texture.image_view.raw(),
+                        image::Layout::ShaderReadOnlyOptimal,
+                        texture.sampler.raw(),
+                    )],
+                }]);
         }
 
         Ok(ImguiPipeline {
@@ -328,9 +316,9 @@ impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
 }
 
 impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
-    where
-        B: gfx_hal::Backend,
-        T: ?Sized,
+where
+    B: gfx_hal::Backend,
+    T: ?Sized,
 {
     type Desc = ImguiPipelineDesc;
 
@@ -346,7 +334,6 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
             return PrepareResult::DrawReuse;
         }
 
-
         let mut vbuf = factory
             .create_buffer(
                 512,
@@ -355,12 +342,13 @@ impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
             )
             .unwrap();
 
-        let num_inds = 0; // TODO
-        let mut index_buffer = factory.create_buffer(
-            0 /* TODO: Correct number of indices */,
-            0 /* TODO: Correct size */,
-            (gfx_hal::buffer::Usage::INDEX, MemoryUsageValue::Dynamic)
-        ).unwrap();
+        let index_buffer = factory
+            .create_buffer(
+                0, /* TODO: Correct number of indices */
+                0, /* TODO: Correct size */
+                (gfx_hal::buffer::Usage::INDEX, MemoryUsageValue::Dynamic),
+            )
+            .unwrap();
 
         unsafe {
             // Fresh buffer.
@@ -449,6 +437,7 @@ fn run(
     Ok(())
 }
 
+#[allow(dead_code)]
 #[cfg(any(feature = "dx12", feature = "metal", feature = "vulkan"))]
 fn main() {
     env_logger::Builder::from_default_env()
@@ -499,6 +488,7 @@ fn main() {
     run(&mut event_loop, &mut factory, &mut families, graph).unwrap();
 }
 
+#[allow(dead_code)]
 #[cfg(not(any(feature = "dx12", feature = "metal", feature = "vulkan")))]
 fn main() {
     panic!("Specify feature: { dx12, metal, vulkan }");

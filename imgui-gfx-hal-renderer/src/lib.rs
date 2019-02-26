@@ -47,6 +47,12 @@ struct ImguiPipeline<B: Backend> {
 
 struct Gui(ImGui);
 
+impl Gui {
+    pub fn init() -> Self {
+        Gui(ImGui::init())
+    }
+}
+
 impl Debug for Gui {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         f.write_str("ImGuiInstance")
@@ -247,6 +253,7 @@ where
         assert_eq!(set_layouts.len(), 1);
 
         // This is how we can load an image and create a new texture.
+        // TODO: imgui.prepare_texture to create buffers/etc to create buffers/etc
 
         let (width, height) = (256, 240);
 
@@ -257,7 +264,6 @@ where
                 image_data.push(Rgba8Srgb { repr: [0, 0, 0, 0] });
             }
         }
-
         let texture_builder = TextureBuilder::new()
             .with_kind(gfx_hal::image::Kind::D2(width, height, 1, 1))
             .with_view_kind(gfx_hal::image::ViewKind::D2)
@@ -353,16 +359,7 @@ where
         unsafe {
             // Fresh buffer.
             factory
-                .upload_visible_buffer::<Vertex>(
-                    &mut vbuf,
-                    0,
-                    &[
-//                        PosTex {
-//                            position: [-0.5, -0.33, 0.0].into(),
-//                            tex_coord: [0.0, 0.0].into(),
-//                        },
-                    ],
-                )
+                .upload_visible_buffer::<Vertex>(&mut vbuf, 0, &[/* TODO */])
                 .unwrap();
         }
 
@@ -435,61 +432,4 @@ fn run(
 
     graph.dispose(factory, &mut ());
     Ok(())
-}
-
-#[allow(dead_code)]
-#[cfg(any(feature = "dx12", feature = "metal", feature = "vulkan"))]
-fn main() {
-    env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Warn)
-        .filter_module("sprite", log::LevelFilter::Trace)
-        .init();
-
-    let config: Config = Default::default();
-
-    let (mut factory, mut families): (Factory<Backend>, _) = rendy::factory::init(config).unwrap();
-
-    let mut event_loop = EventsLoop::new();
-
-    let window = WindowBuilder::new()
-        .with_title("Rendy example")
-        .build(&event_loop)
-        .unwrap();
-
-    event_loop.poll_events(|_| ());
-
-    let surface = factory.create_surface(window.into());
-
-    let mut graph_builder = GraphBuilder::<Backend, ()>::new();
-
-    let color = graph_builder.create_image(
-        surface.kind(),
-        1,
-        gfx_hal::format::Format::Rgba8Unorm,
-        MemoryUsageValue::Data,
-        Some(gfx_hal::command::ClearValue::Color(
-            [1.0, 1.0, 1.0, 1.0].into(),
-        )),
-    );
-
-    let pass = graph_builder.add_node(
-        ImguiPipeline::builder()
-            .into_subpass()
-            .with_color(color)
-            .into_pass(),
-    );
-
-    graph_builder.add_node(PresentNode::builder(surface, color).with_dependency(pass));
-
-    let graph = graph_builder
-        .build(&mut factory, &mut families, &mut ())
-        .unwrap();
-
-    run(&mut event_loop, &mut factory, &mut families, graph).unwrap();
-}
-
-#[allow(dead_code)]
-#[cfg(not(any(feature = "dx12", feature = "metal", feature = "vulkan")))]
-fn main() {
-    panic!("Specify feature: { dx12, metal, vulkan }");
 }

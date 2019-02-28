@@ -38,7 +38,6 @@ lazy_static::lazy_static! {
 
 #[derive(Debug)]
 struct ImguiPipeline<B: Backend> {
-    gui: Gui,
     texture: Texture<B>,
     buffers: Option<(Buffer<B>, Buffer<B>)>,
     descriptor_pool: B::DescriptorPool,
@@ -47,8 +46,8 @@ struct ImguiPipeline<B: Backend> {
 
 struct Gui(ImGui);
 
-impl Gui {
-    pub fn init() -> Self {
+impl Default for Gui {
+    fn default() -> Self {
         Gui(ImGui::init())
     }
 }
@@ -60,7 +59,9 @@ impl Debug for Gui {
 }
 
 #[derive(Debug, Default)]
-struct ImguiPipelineDesc;
+struct ImguiPipelineDesc {
+    gui: Gui,
+}
 
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 struct Vec2(ImVec2);
@@ -240,7 +241,7 @@ where
     }
 
     fn build<'b>(
-        self,
+        mut self,
         factory: &mut Factory<B>,
         queue: QueueId,
         _aux: &mut T,
@@ -255,8 +256,10 @@ where
         // This is how we can load an image and create a new texture.
         // TODO: imgui.prepare_texture to create buffers/etc to create buffers/etc
 
-        let (width, height) = (256, 240);
+        let Gui(imgui) = &mut self.gui;
+        imgui.prepare_texture::<_, Result<_, Error>>(|handle| unsafe { Ok(()) });
 
+        let (width, height) = (256, 240);
         let mut image_data = Vec::<Rgba8Srgb>::new();
 
         for _y in 0..height {
@@ -312,7 +315,6 @@ where
         }
 
         Ok(ImguiPipeline {
-            gui: Gui(ImGui::init()),
             texture,
             buffers: None,
             descriptor_pool,

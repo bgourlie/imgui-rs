@@ -1,3 +1,4 @@
+use imgui::DrawData;
 #[allow(unused_imports)]
 use {
     gfx_hal::{format, image, pso, Backend, Device},
@@ -37,9 +38,23 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Debug)]
+struct Buffers<B: Backend> {
+    vertex: Buffer<B>,
+    index: Buffer<B>,
+    required_vertex_capacity: usize,
+    required_index_capacity: usize,
+}
+
+impl<B: Backend> Buffers<B> {
+    fn has_room(&self, num_vertices: usize, num_indices: usize) -> bool {
+        self.required_vertex_capacity >= num_vertices && self.required_index_capacity >= num_indices
+    }
+}
+
+#[derive(Debug)]
 struct ImguiPipeline<B: Backend> {
     texture: Texture<B>,
-    buffers: Option<(Buffer<B>, Buffer<B>)>,
+    buffers: Option<(Buffers<B>)>,
     descriptor_pool: B::DescriptorPool,
     descriptor_set: B::DescriptorSet,
 }
@@ -175,10 +190,9 @@ impl WithAttribute<Uv> for Vertex {
     };
 }
 
-impl<B, T> SimpleGraphicsPipelineDesc<B, T> for ImguiPipelineDesc
+impl<'a, B> SimpleGraphicsPipelineDesc<B, DrawData<'a>> for ImguiPipelineDesc
 where
     B: gfx_hal::Backend,
-    T: ?Sized,
 {
     type Pipeline = ImguiPipeline<B>;
 
@@ -215,7 +229,7 @@ where
         &self,
         storage: &'b mut Vec<B::ShaderModule>,
         factory: &mut Factory<B>,
-        _aux: &mut T,
+        _aux: &mut DrawData,
     ) -> gfx_hal::pso::GraphicsShaderSet<'b, B> {
         storage.clear();
 
@@ -244,7 +258,7 @@ where
         mut self,
         factory: &mut Factory<B>,
         queue: QueueId,
-        _aux: &mut T,
+        _aux: &mut DrawData,
         buffers: Vec<NodeBuffer<'b, B>>,
         images: Vec<NodeImage<'b, B>>,
         set_layouts: &[B::DescriptorSetLayout],
@@ -253,34 +267,27 @@ where
         assert!(images.is_empty());
         assert_eq!(set_layouts.len(), 1);
 
-        // This is how we can load an image and create a new texture.
-        // TODO: imgui.prepare_texture to create buffers/etc to create buffers/etc
-
         let Gui(imgui) = &mut self.gui;
-        imgui.prepare_texture::<_, Result<_, Error>>(|handle| unsafe { Ok(()) });
+        let texture = imgui
+            .prepare_texture::<_, Result<_, Error>>(|handle| {
+                let (width, height) = (handle.width, handle.height);
 
-        let (width, height) = (256, 240);
-        let mut image_data = Vec::<Rgba8Srgb>::new();
+                let texture_builder = TextureBuilder::new()
+                    .with_kind(gfx_hal::image::Kind::D2(width, height, 1, 1))
+                    .with_view_kind(gfx_hal::image::ViewKind::D2)
+                    .with_data_width(width)
+                    .with_data_height(height);
 
-        for _y in 0..height {
-            for _x in 0..width {
-                image_data.push(Rgba8Srgb { repr: [0, 0, 0, 0] });
-            }
-        }
-        let texture_builder = TextureBuilder::new()
-            .with_kind(gfx_hal::image::Kind::D2(width, height, 1, 1))
-            .with_view_kind(gfx_hal::image::ViewKind::D2)
-            .with_data_width(width)
-            .with_data_height(height)
-            .with_data(&image_data);
-
-        let texture = texture_builder
-            .build(
-                queue,
-                gfx_hal::image::Access::TRANSFER_WRITE,
-                gfx_hal::image::Layout::TransferDstOptimal,
-                factory,
-            )
+                let texture = texture_builder
+                    .build(
+                        queue,
+                        gfx_hal::image::Access::TRANSFER_WRITE,
+                        gfx_hal::image::Layout::TransferDstOptimal,
+                        factory,
+                    )
+                    .unwrap();
+                Ok(texture)
+            })
             .unwrap();
 
         let mut descriptor_pool = unsafe {
@@ -323,10 +330,9 @@ where
     }
 }
 
-impl<B, T> SimpleGraphicsPipeline<B, T> for ImguiPipeline<B>
+impl<'a, B> SimpleGraphicsPipeline<B, DrawData<'a>> for ImguiPipeline<B>
 where
     B: gfx_hal::Backend,
-    T: ?Sized,
 {
     type Desc = ImguiPipelineDesc;
 
@@ -336,36 +342,39 @@ where
         _queue: QueueId,
         _set_layouts: &[B::DescriptorSetLayout],
         _index: usize,
-        _aux: &T,
+        draw_data: &DrawData,
     ) -> PrepareResult {
-        if self.buffers.is_some() {
-            return PrepareResult::DrawReuse;
-        }
-
-        let mut vbuf = factory
-            .create_buffer(
-                512,
-                Vertex::VERTEX.stride as u64 * 6,
-                (gfx_hal::buffer::Usage::VERTEX, MemoryUsageValue::Dynamic),
-            )
-            .unwrap();
-
-        let index_buffer = factory
-            .create_buffer(
-                0, /* TODO: Correct number of indices */
-                0, /* TODO: Correct size */
-                (gfx_hal::buffer::Usage::INDEX, MemoryUsageValue::Dynamic),
-            )
-            .unwrap();
-
-        unsafe {
-            // Fresh buffer.
-            factory
-                .upload_visible_buffer::<Vertex>(&mut vbuf, 0, &[/* TODO */])
+        if self.buffers.is_none() {
+            let mut vertex_buffer = factory
+                .create_buffer(
+                    512,
+                    Vertex::VERTEX.stride as u64 * 6,
+                    (gfx_hal::buffer::Usage::VERTEX, MemoryUsageValue::Dynamic),
+                )
                 .unwrap();
-        }
 
-        self.buffers = Some((vbuf, index_buffer));
+            let index_buffer = factory
+                .create_buffer(
+                    0, /* TODO: Correct number of indices */
+                    0, /* TODO: Correct size */
+                    (gfx_hal::buffer::Usage::INDEX, MemoryUsageValue::Dynamic),
+                )
+                .unwrap();
+
+            unsafe {
+                // Fresh buffer.
+                factory
+                    .upload_visible_buffer::<Vertex>(&mut vertex_buffer, 0, &[/* TODO */])
+                    .unwrap();
+            }
+
+            self.buffers = Some(Buffers {
+                vertex: vertex_buffer,
+                index: index_buffer,
+                required_vertex_capacity: draw_data.total_vtx_count(),
+                required_index_capacity: draw_data.total_idx_count(),
+            });
+        }
 
         return PrepareResult::DrawRecord;
     }
@@ -375,21 +384,21 @@ where
         layout: &B::PipelineLayout,
         mut encoder: RenderPassEncoder<'_, B>,
         _index: usize,
-        _aux: &T,
+        _aux: &DrawData,
     ) {
-        let (vbuf, _index_buffer) = self.buffers.as_ref().unwrap();
+        let buffers = self.buffers.as_ref().unwrap();
         encoder.bind_graphics_descriptor_sets(
             layout,
             0,
             std::iter::once(&self.descriptor_set),
             std::iter::empty::<u32>(),
         );
-        encoder.bind_vertex_buffers(0, Some((vbuf.raw(), 0)));
+        encoder.bind_vertex_buffers(0, Some((buffers.vertex.raw(), 0)));
         encoder.draw(0..3, 0..1);
         encoder.draw(3..6, 0..1);
     }
 
-    fn dispose(self, _factory: &mut Factory<B>, _aux: &mut T) {}
+    fn dispose(self, _factory: &mut Factory<B>, _aux: &mut DrawData) {}
 }
 
 #[cfg(any(feature = "dx12", feature = "metal", feature = "vulkan"))]

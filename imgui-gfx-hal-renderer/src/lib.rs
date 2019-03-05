@@ -176,17 +176,17 @@ impl WithAttribute<Position> for Vertex {
     };
 }
 
-impl WithAttribute<Color> for Vertex {
+impl WithAttribute<Uv> for Vertex {
     const ATTRIBUTE: Attribute = Attribute {
-        offset: 0,
-        format: Position::FORMAT,
+        offset: Position::SIZE,
+        format: Uv::FORMAT,
     };
 }
 
-impl WithAttribute<Uv> for Vertex {
+impl WithAttribute<Color> for Vertex {
     const ATTRIBUTE: Attribute = Attribute {
-        offset: 0,
-        format: Position::FORMAT,
+        offset: Position::SIZE + Uv::SIZE,
+        format: Color::FORMAT,
     };
 }
 

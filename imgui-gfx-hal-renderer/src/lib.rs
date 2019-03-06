@@ -1,7 +1,7 @@
 use imgui::DrawData;
 #[allow(unused_imports)]
 use {
-    gfx_hal::{format, image, pso, Backend, Device},
+    gfx_hal::{format, image, pso, Backend, Device, PhysicalDevice},
     imgui::{ImDrawVert, ImGui, ImVec2},
     imgui_sys::ImU32,
     rendy::{
@@ -345,9 +345,12 @@ where
         draw_data: &DrawData,
     ) -> PrepareResult {
         if self.buffers.is_none() {
+            let align =
+                PhysicalDevice::limits(factory.physical()).min_uniform_buffer_offset_alignment;
+
             let mut vertex_buffer = factory
                 .create_buffer(
-                    512,
+                    align,
                     Vertex::VERTEX.stride as u64 * 6,
                     (gfx_hal::buffer::Usage::VERTEX, MemoryUsageValue::Dynamic),
                 )
@@ -355,7 +358,7 @@ where
 
             let index_buffer = factory
                 .create_buffer(
-                    0, /* TODO: Correct number of indices */
+                    align,
                     0, /* TODO: Correct size */
                     (gfx_hal::buffer::Usage::INDEX, MemoryUsageValue::Dynamic),
                 )

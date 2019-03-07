@@ -351,7 +351,7 @@ where
             let mut vertex_buffer = factory
                 .create_buffer(
                     align,
-                    Vertex::VERTEX.stride as u64 * 6,
+                    Vertex::VERTEX.stride as u64 * draw_data.total_vtx_count() as u64,
                     (gfx_hal::buffer::Usage::VERTEX, MemoryUsageValue::Dynamic),
                 )
                 .unwrap();
@@ -359,7 +359,7 @@ where
             let index_buffer = factory
                 .create_buffer(
                     align,
-                    0, /* TODO: Correct size */
+                    2 * (draw_data.total_idx_count() as u64),
                     (gfx_hal::buffer::Usage::INDEX, MemoryUsageValue::Dynamic),
                 )
                 .unwrap();

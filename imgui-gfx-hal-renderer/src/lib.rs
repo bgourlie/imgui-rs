@@ -1,4 +1,4 @@
-use imgui::DrawData;
+use imgui::{DrawData, ImDrawIdx};
 #[allow(unused_imports)]
 use {
     gfx_hal::{format, image, pso, Backend, Device, PhysicalDevice},
@@ -46,6 +46,32 @@ struct Buffers<B: Backend> {
 }
 
 impl<B: Backend> Buffers<B> {
+    fn new(factory: &Factory<B>, draw_data: &DrawData) -> Self {
+        let align = PhysicalDevice::limits(factory.physical()).min_uniform_buffer_offset_alignment;
+
+        let mut vertex_buffer = factory
+            .create_buffer(
+                align,
+                Vertex::VERTEX.stride as u64 * draw_data.total_vtx_count() as u64,
+                (gfx_hal::buffer::Usage::VERTEX, MemoryUsageValue::Dynamic),
+            )
+            .unwrap();
+
+        let index_buffer = factory
+            .create_buffer(
+                align,
+                std::mem::size_of::<ImDrawIdx>() as u64 * draw_data.total_idx_count() as u64,
+                (gfx_hal::buffer::Usage::INDEX, MemoryUsageValue::Dynamic),
+            )
+            .unwrap();
+        Buffers {
+            vertex: vertex_buffer,
+            index: index_buffer,
+            required_vertex_capacity: draw_data.total_vtx_count(),
+            required_index_capacity: draw_data.total_idx_count(),
+        }
+    }
+
     fn has_room(&self, num_vertices: usize, num_indices: usize) -> bool {
         self.required_vertex_capacity >= num_vertices && self.required_index_capacity >= num_indices
     }
@@ -345,38 +371,14 @@ where
         draw_data: &DrawData,
     ) -> PrepareResult {
         if self.buffers.is_none() {
-            let align =
-                PhysicalDevice::limits(factory.physical()).min_uniform_buffer_offset_alignment;
+            //            unsafe {
+            //                // Fresh buffer.
+            //                factory
+            //                    .upload_visible_buffer::<Vertex>(&mut vertex_buffer, 0, &[/* TODO */])
+            //                    .unwrap();
+            //            }
 
-            let mut vertex_buffer = factory
-                .create_buffer(
-                    align,
-                    Vertex::VERTEX.stride as u64 * draw_data.total_vtx_count() as u64,
-                    (gfx_hal::buffer::Usage::VERTEX, MemoryUsageValue::Dynamic),
-                )
-                .unwrap();
-
-            let index_buffer = factory
-                .create_buffer(
-                    align,
-                    2 * (draw_data.total_idx_count() as u64),
-                    (gfx_hal::buffer::Usage::INDEX, MemoryUsageValue::Dynamic),
-                )
-                .unwrap();
-
-            unsafe {
-                // Fresh buffer.
-                factory
-                    .upload_visible_buffer::<Vertex>(&mut vertex_buffer, 0, &[/* TODO */])
-                    .unwrap();
-            }
-
-            self.buffers = Some(Buffers {
-                vertex: vertex_buffer,
-                index: index_buffer,
-                required_vertex_capacity: draw_data.total_vtx_count(),
-                required_index_capacity: draw_data.total_idx_count(),
-            });
+            self.buffers = Some(Buffers::new(factory, draw_data));
         }
 
         return PrepareResult::DrawRecord;

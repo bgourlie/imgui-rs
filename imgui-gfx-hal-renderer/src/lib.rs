@@ -1,3 +1,4 @@
+use gfx_hal::pso::Rect;
 use imgui::{DrawData, ImDrawIdx};
 #[allow(unused_imports)]
 use {
@@ -49,7 +50,7 @@ impl<B: Backend> Buffers<B> {
     fn new(factory: &Factory<B>, draw_data: &DrawData) -> Self {
         let align = PhysicalDevice::limits(factory.physical()).min_uniform_buffer_offset_alignment;
 
-        let mut vertex_buffer = factory
+        let vertex_buffer = factory
             .create_buffer(
                 align,
                 Vertex::VERTEX.stride as u64 * draw_data.total_vtx_count() as u64,
@@ -69,6 +70,24 @@ impl<B: Backend> Buffers<B> {
             index: index_buffer,
             required_vertex_capacity: draw_data.total_vtx_count(),
             required_index_capacity: draw_data.total_idx_count(),
+        }
+    }
+
+    fn update(
+        &mut self,
+        factory: &Factory<B>,
+        vertices: &[ImDrawVert],
+        indices: &[ImDrawIdx],
+        vertex_offset: u64,
+        index_offset: u64,
+    ) {
+        unsafe {
+            factory
+                .upload_visible_buffer::<ImDrawVert>(&mut self.vertex, vertex_offset, vertices)
+                .unwrap();
+            factory
+                .upload_visible_buffer::<ImDrawIdx>(&mut self.index, index_offset, indices)
+                .unwrap()
         }
     }
 
@@ -370,15 +389,18 @@ where
         _index: usize,
         draw_data: &DrawData,
     ) -> PrepareResult {
-        if self.buffers.is_none() {
-            //            unsafe {
-            //                // Fresh buffer.
-            //                factory
-            //                    .upload_visible_buffer::<Vertex>(&mut vertex_buffer, 0, &[/* TODO */])
-            //                    .unwrap();
-            //            }
-
-            self.buffers = Some(Buffers::new(factory, draw_data));
+        if self
+            .buffers
+            .as_ref()
+            .map(|buffers| {
+                !buffers.has_room(draw_data.total_vtx_count(), draw_data.total_idx_count())
+            })
+            .unwrap_or(true)
+        {
+            let buffers = Buffers::new(factory, draw_data);
+            if let Some(_old) = std::mem::replace(&mut self.buffers, Some(buffers)) {
+                // TODO: Destroy buffers? How in rendy?
+            }
         }
 
         return PrepareResult::DrawRecord;
@@ -389,7 +411,7 @@ where
         layout: &B::PipelineLayout,
         mut encoder: RenderPassEncoder<'_, B>,
         _index: usize,
-        _aux: &DrawData,
+        draw_data: &DrawData,
     ) {
         let buffers = self.buffers.as_ref().unwrap();
         encoder.bind_graphics_descriptor_sets(
@@ -399,8 +421,50 @@ where
             std::iter::empty::<u32>(),
         );
         encoder.bind_vertex_buffers(0, Some((buffers.vertex.raw(), 0)));
-        encoder.draw(0..3, 0..1);
-        encoder.draw(3..6, 0..1);
+        encoder.bind_index_buffer(buffers.index.raw(), 0, gfx_hal::IndexType::U16);
+
+        // Set push constants
+        let push_constants = [
+            // scale
+            2.0 / width,
+            2.0 / height,
+            //offset
+            -1.0,
+            -1.0,
+        ];
+
+        encoder.push_constants(layout, pso::ShaderStageFlags::VERTEX, 0, &push_constants);
+
+        let mut vertex_offset = 0;
+        let mut index_offset = 0;
+        for list in draw_data {
+            self.buffers.as_mut().unwrap().update(
+                factory,
+                list.vtx_buffer,
+                list.idx_buffer,
+                vertex_offset,
+                index_offset,
+            );
+
+            for cmd in list.cmd_buffer.iter() {
+                let scissor = Rect {
+                    x: cmd.clip_rect.x as i16,
+                    y: cmd.clip_rect.y as i16,
+                    w: (cmd.clip_rect.z - cmd.clip_rect.x) as i16,
+                    h: (cmd.clip_rect.w - cmd.clip_rect.y) as i16,
+                };
+
+                // TODO: pass.set_scissors(0, &[scissor]);
+                encoder.draw_indexed(
+                    index_offset as u32..index_offset as u32 + cmd.elem_count,
+                    vertex_offset as i32,
+                    0..1,
+                );
+                index_offset += cmd.elem_count as usize;
+            }
+
+            vertex_offset += list.vtx_buffer.len();
+        }
     }
 
     fn dispose(self, _factory: &mut Factory<B>, _aux: &mut DrawData) {}

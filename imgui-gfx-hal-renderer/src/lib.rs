@@ -1,19 +1,18 @@
 use gfx_hal::pso::Rect;
 use imgui::{DrawData, ImDrawIdx};
-#[allow(unused_imports)]
 use {
     gfx_hal::{format, image, pso, Backend, Device, PhysicalDevice},
     imgui::{ImDrawVert, ImGui, ImVec2},
     imgui_sys::ImU32,
     rendy::{
-        command::{Families, QueueId, RenderPassEncoder},
-        factory::{Config, Factory},
-        graph::{present::PresentNode, render::*, Graph, GraphBuilder, NodeBuffer, NodeImage},
+        command::{QueueId, RenderPassEncoder},
+        factory::Factory,
+        graph::{render::*, NodeBuffer, NodeImage},
         memory::MemoryUsageValue,
         mesh::{AsAttribute, AsVertex, Attribute, VertexFormat, WithAttribute},
         resource::buffer::Buffer,
         shader::{Shader, ShaderKind, SourceLanguage, StaticShaderInfo},
-        texture::{pixel::Rgba8Srgb, Texture, TextureBuilder},
+        texture::{Texture, TextureBuilder},
     },
     std::{
         borrow::Cow,
@@ -73,6 +72,7 @@ impl<B: Backend> Buffers<B> {
         }
     }
 
+    #[allow(dead_code)]
     fn update(
         &mut self,
         factory: &Factory<B>,
@@ -98,6 +98,7 @@ impl<B: Backend> Buffers<B> {
 
 #[derive(Debug)]
 struct ImguiPipeline<B: Backend> {
+    gui: Gui,
     texture: Texture<B>,
     buffers: Option<(Buffers<B>)>,
     descriptor_pool: B::DescriptorPool,
@@ -116,11 +117,6 @@ impl Debug for Gui {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         f.write_str("ImGuiInstance")
     }
-}
-
-#[derive(Debug, Default)]
-struct ImguiPipelineDesc {
-    gui: Gui,
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -233,6 +229,11 @@ impl WithAttribute<Color> for Vertex {
         offset: Position::SIZE + Uv::SIZE,
         format: Color::FORMAT,
     };
+}
+
+#[derive(Debug, Default)]
+struct ImguiPipelineDesc {
+    gui: Gui,
 }
 
 impl<'a, B> SimpleGraphicsPipelineDesc<B, DrawData<'a>> for ImguiPipelineDesc
@@ -371,6 +372,7 @@ where
             buffers: None,
             descriptor_pool,
             descriptor_set,
+            gui: self.gui,
         })
     }
 }
@@ -413,6 +415,7 @@ where
         _index: usize,
         draw_data: &DrawData,
     ) {
+        let Gui(imgui) = &self.gui;
         let buffers = self.buffers.as_ref().unwrap();
         encoder.bind_graphics_descriptor_sets(
             layout,
@@ -422,6 +425,8 @@ where
         );
         encoder.bind_vertex_buffers(0, Some((buffers.vertex.raw(), 0)));
         encoder.bind_index_buffer(buffers.index.raw(), 0, gfx_hal::IndexType::U16);
+
+        let (width, height) = imgui.display_size();
 
         // Set push constants
         let push_constants = [
@@ -433,21 +438,25 @@ where
             -1.0,
         ];
 
+        // yikes
+        let push_constants: [u32; 4] = unsafe { std::mem::transmute(push_constants) };
         encoder.push_constants(layout, pso::ShaderStageFlags::VERTEX, 0, &push_constants);
 
         let mut vertex_offset = 0;
         let mut index_offset = 0;
         for list in draw_data {
-            self.buffers.as_mut().unwrap().update(
-                factory,
-                list.vtx_buffer,
-                list.idx_buffer,
-                vertex_offset,
-                index_offset,
-            );
+            // TODO: factory isn't available in draw()
+
+            // self.buffers.as_mut().unwrap().update(
+            //     factory,
+            //     list.vtx_buffer,
+            //     list.idx_buffer,
+            //     vertex_offset,
+            //     index_offset,
+            // );
 
             for cmd in list.cmd_buffer.iter() {
-                let scissor = Rect {
+                let _scissor = Rect {
                     x: cmd.clip_rect.x as i16,
                     y: cmd.clip_rect.y as i16,
                     w: (cmd.clip_rect.z - cmd.clip_rect.x) as i16,
@@ -455,6 +464,7 @@ where
                 };
 
                 // TODO: pass.set_scissors(0, &[scissor]);
+
                 encoder.draw_indexed(
                     index_offset as u32..index_offset as u32 + cmd.elem_count,
                     vertex_offset as i32,

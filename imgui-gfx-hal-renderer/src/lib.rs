@@ -1,7 +1,11 @@
 use gfx_hal::pso::Rect;
 use imgui::{DrawData, ImDrawIdx};
 use {
-    gfx_hal::{format, image, pso, Backend, Device, PhysicalDevice},
+    gfx_hal::{
+        format, image,
+        pso::{self, DescriptorPool as _},
+        Backend, Device, PhysicalDevice,
+    },
     imgui::{ImDrawVert, ImGui, ImVec2},
     imgui_sys::ImU32,
     rendy::{
@@ -490,7 +494,12 @@ where
         }
     }
 
-    fn dispose(self, _factory: &mut Factory<B>, _aux: &mut DrawData) {}
+    fn dispose(mut self, factory: &mut Factory<B>, _aux: &mut DrawData) {
+        unsafe {
+            self.descriptor_pool.reset();
+            factory.destroy_descriptor_pool(self.descriptor_pool);
+        }
+    }
 }
 
 #[cfg(any(feature = "dx12", feature = "metal", feature = "vulkan"))]

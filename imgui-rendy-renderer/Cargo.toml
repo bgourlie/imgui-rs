@@ -1,9 +1,9 @@
 [package]
-name = "imgui-gfx-hal-renderer"
+name = "imgui-rendy-renderer"
 version = "0.0.23-pre"
 edition = "2018"
 authors = ["Joonas Javanainen <joonas.javanainen@gmail.com>", "imgui-rs contributors"]
-description = "gfx-hal renderer for the imgui crate"
+description = "rendy renderer for the imgui crate"
 homepage = "https://github.com/Gekkio/imgui-rs"
 repository = "https://github.com/Gekkio/imgui-rs"
 license = "MIT/Apache-2.0"

@@ -6,7 +6,7 @@ use {
     imgui_sys::ImU32,
     rendy::{
         command::{QueueId, RenderPassEncoder},
-        factory::Factory,
+        factory::{Factory, ImageState},
         graph::{render::*, NodeBuffer, NodeImage},
         memory::MemoryUsageValue,
         mesh::{AsAttribute, AsVertex, Attribute, VertexFormat, WithAttribute},
@@ -326,9 +326,12 @@ where
 
                 let texture = texture_builder
                     .build(
-                        queue,
-                        gfx_hal::image::Access::TRANSFER_WRITE,
-                        gfx_hal::image::Layout::TransferDstOptimal,
+                        ImageState {
+                            queue,
+                            stage: gfx_hal::pso::PipelineStage::VERTEX_SHADER, /* TODO: Verify correct Stage */
+                            access: gfx_hal::image::Access::TRANSFER_WRITE,
+                            layout: gfx_hal::image::Layout::TransferDstOptimal,
+                        },
                         factory,
                     )
                     .unwrap();
@@ -405,6 +408,26 @@ where
             }
         }
 
+        // Update buffers
+        let mut vertex_offset = 0;
+        let mut index_offset = 0;
+        for list in draw_data {
+            self.buffers.as_mut().unwrap().update(
+                factory,
+                list.vtx_buffer,
+                list.idx_buffer,
+                vertex_offset,
+                index_offset,
+            );
+            index_offset += u64::from(
+                list.cmd_buffer
+                    .iter()
+                    .map(|cmd| cmd.elem_count)
+                    .fold(0, |acc, offset| acc + offset),
+            );
+            vertex_offset += list.vtx_buffer.len() as u64;
+        }
+
         return PrepareResult::DrawRecord;
     }
 
@@ -445,25 +468,15 @@ where
         let mut vertex_offset = 0;
         let mut index_offset = 0;
         for list in draw_data {
-            // TODO: factory isn't available in draw()
-
-            // self.buffers.as_mut().unwrap().update(
-            //     factory,
-            //     list.vtx_buffer,
-            //     list.idx_buffer,
-            //     vertex_offset,
-            //     index_offset,
-            // );
-
             for cmd in list.cmd_buffer.iter() {
-                let _scissor = Rect {
+                let scissor = Rect {
                     x: cmd.clip_rect.x as i16,
                     y: cmd.clip_rect.y as i16,
                     w: (cmd.clip_rect.z - cmd.clip_rect.x) as i16,
                     h: (cmd.clip_rect.w - cmd.clip_rect.y) as i16,
                 };
 
-                // TODO: pass.set_scissors(0, &[scissor]);
+                encoder.set_scissors(0, &[scissor]);
 
                 encoder.draw_indexed(
                     index_offset as u32..index_offset as u32 + cmd.elem_count,

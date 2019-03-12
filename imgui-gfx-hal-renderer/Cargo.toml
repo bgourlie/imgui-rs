@@ -13,7 +13,7 @@ categories = ["gui", "rendering"]
 travis-ci = { repository = "Gekkio/imgui-rs" }
 
 [dependencies]
-rendy = {git = "https://github.com/omni-viral/rendy.git" }
+rendy = {path = "C:\\Users\\bgour\\Repos\\rendy\\rendy" }
 failure = "0.1.5"
 gfx-hal = "0.1.0"
 lazy_static = "1.2.0"

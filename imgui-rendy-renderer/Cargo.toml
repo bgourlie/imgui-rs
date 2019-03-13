@@ -19,7 +19,7 @@ metal = ["rendy/metal"]
 vulkan = ["rendy/vulkan"]
 
 [dependencies]
-rendy = {path = "C:\\Users\\bgour\\Repos\\rendy\\rendy" }
+rendy = { git = "https://github.com/bgourlie/rendy", branch = "set-scissors" }
 failure = "0.1.5"
 gfx-hal = "0.1.0"
 lazy_static = "1.2.0"

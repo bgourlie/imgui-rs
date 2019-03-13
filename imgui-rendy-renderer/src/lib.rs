@@ -101,7 +101,7 @@ impl<B: Backend> Buffers<B> {
 }
 
 #[derive(Debug)]
-struct ImguiPipeline<B: Backend> {
+pub struct ImguiPipeline<B: Backend> {
     gui: Gui,
     texture: Texture<B>,
     buffers: Option<(Buffers<B>)>,
@@ -236,7 +236,7 @@ impl WithAttribute<Color> for Vertex {
 }
 
 #[derive(Debug, Default)]
-struct ImguiPipelineDesc {
+pub struct ImguiPipelineDesc {
     gui: Gui,
 }
 
@@ -423,12 +423,11 @@ where
                 vertex_offset,
                 index_offset,
             );
-            index_offset += u64::from(
-                list.cmd_buffer
-                    .iter()
-                    .map(|cmd| cmd.elem_count)
-                    .fold(0, |acc, offset| acc + offset),
-            );
+            index_offset += list
+                .cmd_buffer
+                .iter()
+                .map(|cmd| u64::from(cmd.elem_count))
+                .sum::<u64>();
             vertex_offset += list.vtx_buffer.len() as u64;
         }
 
@@ -500,48 +499,4 @@ where
             factory.destroy_descriptor_pool(self.descriptor_pool);
         }
     }
-}
-
-#[cfg(any(feature = "dx12", feature = "metal", feature = "vulkan"))]
-fn run(
-    event_loop: &mut EventsLoop,
-    factory: &mut Factory<Backend>,
-    families: &mut Families<Backend>,
-    mut graph: Graph<Backend, ()>,
-) -> Result<(), failure::Error> {
-    let started = std::time::Instant::now();
-
-    std::thread::spawn(move || {
-        while started.elapsed() < std::time::Duration::new(30, 0) {
-            std::thread::sleep(std::time::Duration::new(1, 0));
-        }
-
-        std::process::abort();
-    });
-
-    let mut frames = 0u64..;
-    let mut elapsed = started.elapsed();
-
-    for _ in &mut frames {
-        factory.maintain(families);
-        event_loop.poll_events(|_| ());
-        graph.run(factory, families, &mut ());
-
-        elapsed = started.elapsed();
-        if elapsed >= std::time::Duration::new(5, 0) {
-            break;
-        }
-    }
-
-    let elapsed_ns = elapsed.as_secs() * 1_000_000_000 + elapsed.subsec_nanos() as u64;
-
-    log::info!(
-        "Elapsed: {:?}. Frames: {}. FPS: {}",
-        elapsed,
-        frames.start,
-        frames.start * 1_000_000_000 / elapsed_ns
-    );
-
-    graph.dispose(factory, &mut ());
-    Ok(())
 }

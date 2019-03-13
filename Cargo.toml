@@ -27,4 +27,5 @@ members = [
 exclude = [
     "imgui-examples",
     "imgui-glium-examples",
+    "imgui-rendy-examples"
 ]

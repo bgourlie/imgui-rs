@@ -13,7 +13,7 @@ use {
         },
         memory::MemoryUsageValue,
     },
-    imgui::DrawData,
+    imgui::ImGui,
     imgui_rendy_renderer::ImguiPipeline,
     winit::{EventsLoop, WindowBuilder},
 };
@@ -106,8 +106,17 @@ fn main() {
 
     graph_builder.add_node(PresentNode::builder(&factory, surface, color).with_dependency(pass));
 
+    let physical_size = window
+        .get_inner_size()
+        .unwrap()
+        .to_physical(window.get_hidpi_factor());
+
+    let hidpi_factor = window.get_hidpi_factor().round();
+
+    let mut context = Context::new();
+
     let graph = graph_builder
-        .build(&mut factory, &mut families, &mut ())
+        .build(&mut factory, &mut families, &mut context)
         .unwrap();
 }
 

@@ -1,12 +1,11 @@
-use gfx_hal::pso::Rect;
-use imgui::{DrawData, ImDrawIdx};
+use core::borrow::BorrowMut;
 use {
     gfx_hal::{
         format, image,
-        pso::{self, DescriptorPool as _},
+        pso::{self, DescriptorPool as _, Rect},
         Backend, Device, PhysicalDevice,
     },
-    imgui::{ImDrawVert, ImGui, ImVec2},
+    imgui::{DrawData, FrameSize, ImDrawIdx, ImDrawVert, ImGui, ImVec2},
     imgui_sys::ImU32,
     rendy::{
         command::{QueueId, RenderPassEncoder},
@@ -18,11 +17,7 @@ use {
         shader::{Shader, ShaderKind, SourceLanguage, StaticShaderInfo},
         texture::{Texture, TextureBuilder},
     },
-    std::{
-        borrow::Cow,
-        cmp::Ordering,
-        fmt::{Debug, Error, Formatter},
-    },
+    std::{borrow::Cow, cell::RefCell, cmp::Ordering, fmt::Error, time::Instant},
 };
 
 lazy_static::lazy_static! {
@@ -39,6 +34,22 @@ lazy_static::lazy_static! {
         SourceLanguage::GLSL,
         "main",
     );
+}
+
+pub struct Context {
+    last_frame_time: Instant,
+    gui: ImGui,
+    frame_size: FrameSize,
+}
+
+impl Context {
+    pub fn new(frame_size: FrameSize) -> Self {
+        Context {
+            last_frame_time: Instant::now(),
+            gui: ImGui::init(),
+            frame_size,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -97,29 +108,6 @@ impl<B: Backend> Buffers<B> {
 
     fn has_room(&self, num_vertices: usize, num_indices: usize) -> bool {
         self.required_vertex_capacity >= num_vertices && self.required_index_capacity >= num_indices
-    }
-}
-
-#[derive(Debug)]
-pub struct ImguiPipeline<B: Backend> {
-    gui: Gui,
-    texture: Texture<B>,
-    buffers: Option<(Buffers<B>)>,
-    descriptor_pool: B::DescriptorPool,
-    descriptor_set: B::DescriptorSet,
-}
-
-struct Gui(ImGui);
-
-impl Default for Gui {
-    fn default() -> Self {
-        Gui(ImGui::init())
-    }
-}
-
-impl Debug for Gui {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        f.write_str("ImGuiInstance")
     }
 }
 
@@ -236,11 +224,9 @@ impl WithAttribute<Color> for Vertex {
 }
 
 #[derive(Debug, Default)]
-pub struct ImguiPipelineDesc {
-    gui: Gui,
-}
+pub struct ImguiPipelineDesc;
 
-impl<'a, B> SimpleGraphicsPipelineDesc<B, DrawData<'a>> for ImguiPipelineDesc
+impl<'a, B> SimpleGraphicsPipelineDesc<B, RefCell<Context>> for ImguiPipelineDesc
 where
     B: gfx_hal::Backend,
 {
@@ -279,7 +265,7 @@ where
         &self,
         storage: &'b mut Vec<B::ShaderModule>,
         factory: &mut Factory<B>,
-        _aux: &mut DrawData,
+        _aux: &mut RefCell<Context>,
     ) -> gfx_hal::pso::GraphicsShaderSet<'b, B> {
         storage.clear();
 
@@ -304,11 +290,11 @@ where
         }
     }
 
-    fn build<'b>(
+    fn build<'b, 'c>(
         mut self,
         factory: &mut Factory<B>,
         queue: QueueId,
-        _aux: &mut DrawData,
+        context: &mut RefCell<Context>,
         buffers: Vec<NodeBuffer<'b, B>>,
         images: Vec<NodeImage<'b, B>>,
         set_layouts: &[B::DescriptorSetLayout],
@@ -317,8 +303,7 @@ where
         assert!(images.is_empty());
         assert_eq!(set_layouts.len(), 1);
 
-        let Gui(imgui) = &mut self.gui;
-        let texture = imgui
+        let texture = context.borrow().gui
             .prepare_texture::<_, Result<_, Error>>(|handle| {
                 let (width, height) = (handle.width, handle.height);
 
@@ -379,12 +364,19 @@ where
             buffers: None,
             descriptor_pool,
             descriptor_set,
-            gui: self.gui,
         })
     }
 }
 
-impl<'a, B> SimpleGraphicsPipeline<B, DrawData<'a>> for ImguiPipeline<B>
+#[derive(Debug)]
+pub struct ImguiPipeline<B: Backend> {
+    texture: Texture<B>,
+    buffers: Option<(Buffers<B>)>,
+    descriptor_pool: B::DescriptorPool,
+    descriptor_set: B::DescriptorSet,
+}
+
+impl<B> SimpleGraphicsPipeline<B, RefCell<Context>> for ImguiPipeline<B>
 where
     B: gfx_hal::Backend,
 {
@@ -396,17 +388,34 @@ where
         _queue: QueueId,
         _set_layouts: &[B::DescriptorSetLayout],
         _index: usize,
-        draw_data: &DrawData,
+        context: &RefCell<Context>,
     ) -> PrepareResult {
+        let context = &mut context.borrow_mut();
+        let frame_size = context.frame_size;
+        let now = Instant::now();
+        let delta = now - context.last_frame_time;
+        let delta_s = delta.as_secs() as f32 + delta.subsec_nanos() as f32 / 1_000_000_000.0;
+        context.last_frame_time = now;
+        let mut draw_data: Option<DrawData> = None;
+        context
+            .gui
+            .frame(frame_size, delta_s)
+            .render::<_, ()>(|ui, inner_draw_data| {
+                draw_data = Some(inner_draw_data);
+                Ok(())
+            })
+            .unwrap();
+
         if self
             .buffers
             .as_ref()
             .map(|buffers| {
+                let draw_data = draw_data.as_ref().unwrap();
                 !buffers.has_room(draw_data.total_vtx_count(), draw_data.total_idx_count())
             })
             .unwrap_or(true)
         {
-            let buffers = Buffers::new(factory, draw_data);
+            let buffers = Buffers::new(factory, draw_data.as_ref().unwrap());
             if let Some(_old) = std::mem::replace(&mut self.buffers, Some(buffers)) {
                 // TODO: Destroy buffers? How in rendy?
             }
@@ -415,6 +424,7 @@ where
         // Update buffers
         let mut vertex_offset = 0;
         let mut index_offset = 0;
+        let draw_data = draw_data.as_ref().unwrap();
         for list in draw_data {
             self.buffers.as_mut().unwrap().update(
                 factory,
@@ -439,9 +449,8 @@ where
         layout: &B::PipelineLayout,
         mut encoder: RenderPassEncoder<'_, B>,
         _index: usize,
-        draw_data: &DrawData,
+        context: &RefCell<Context>,
     ) {
-        let Gui(imgui) = &self.gui;
         let buffers = self.buffers.as_ref().unwrap();
         encoder.bind_graphics_descriptor_sets(
             layout,
@@ -452,7 +461,8 @@ where
         encoder.bind_vertex_buffers(0, Some((buffers.vertex.raw(), 0)));
         encoder.bind_index_buffer(buffers.index.raw(), 0, gfx_hal::IndexType::U16);
 
-        let (width, height) = imgui.display_size();
+        let gui = &context.borrow().gui;
+        let (width, height) = gui.display_size();
 
         // Set push constants
         let push_constants = [
@@ -467,10 +477,9 @@ where
         // yikes
         let push_constants: [u32; 4] = unsafe { std::mem::transmute(push_constants) };
         encoder.push_constants(layout, pso::ShaderStageFlags::VERTEX, 0, &push_constants);
-
         let mut vertex_offset = 0;
         let mut index_offset = 0;
-        for list in draw_data {
+        for list in self.draw_data.as_ref().unwrap() {
             for cmd in list.cmd_buffer.iter() {
                 let scissor = Rect {
                     x: cmd.clip_rect.x as i16,
@@ -493,7 +502,7 @@ where
         }
     }
 
-    fn dispose(mut self, factory: &mut Factory<B>, _aux: &mut DrawData) {
+    fn dispose(mut self, factory: &mut Factory<B>, _aux: &mut RefCell<Context>) {
         unsafe {
             self.descriptor_pool.reset();
             factory.destroy_descriptor_pool(self.descriptor_pool);
